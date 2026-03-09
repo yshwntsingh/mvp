@@ -1,0 +1,90 @@
+Start-Process -NoNewWindow -FilePath "C:\Users\Arihant Singh\AppData\Local\Programs\Ollama\Ollama.exe" -ArgumentList "serve"
+$env:GH="C:\Program Files\Git"
+
+$env:PATH="$env:GH\bin;$env:GH\usr\bin;$env:GH\mingw64\bin;$env:PATH"
+
+structured JSON interpretation of the architecture diagram you generated:
+
+{
+  "architecture_name": "AWS Web Application Architecture",
+  "cloud": "aws",
+  "components": [
+    {
+      "id": "user",
+      "type": "actor",
+      "name": "End User"
+    },
+    {
+      "id": "internet",
+      "type": "network",
+      "name": "Internet"
+    },
+    {
+      "id": "cloudfront",
+      "type": "cdn",
+      "name": "Amazon CloudFront"
+    },
+    {
+      "id": "alb",
+      "type": "load_balancer",
+      "name": "Application Load Balancer"
+    },
+    {
+      "id": "vpc",
+      "type": "network_container",
+      "name": "VPC"
+    },
+    {
+      "id": "igw",
+      "type": "gateway",
+      "name": "Internet Gateway"
+    },
+    {
+      "id": "security_group",
+      "type": "security",
+      "name": "Security Group"
+    },
+    {
+      "id": "ec2_asg",
+      "type": "compute",
+      "name": "EC2 Auto Scaling Group"
+    },
+    {
+      "id": "rds",
+      "type": "database",
+      "name": "RDS PostgreSQL"
+    },
+    {
+      "id": "s3",
+      "type": "object_storage",
+      "name": "S3 Bucket"
+    }
+  ],
+  "connections": [
+    { "from": "user", "to": "internet", "protocol": "HTTPS" },
+    { "from": "internet", "to": "cloudfront", "protocol": "HTTPS" },
+    { "from": "cloudfront", "to": "alb", "protocol": "HTTPS" },
+    { "from": "alb", "to": "ec2_asg", "protocol": "HTTP" },
+    { "from": "ec2_asg", "to": "rds", "protocol": "TCP/5432" },
+    { "from": "ec2_asg", "to": "s3", "protocol": "HTTPS" },
+    { "from": "internet", "to": "igw", "protocol": "Internet Access" },
+    { "from": "igw", "to": "security_group", "protocol": "Network Control" },
+    { "from": "security_group", "to": "ec2_asg", "protocol": "Controlled Access" }
+  ],
+  "network_boundaries": {
+    "vpc_contains": [
+      "igw",
+      "security_group",
+      "ec2_asg",
+      "rds"
+    ]
+  },
+  "data_flow_summary": [
+    "User sends HTTPS request",
+    "Traffic routed through CloudFront CDN",
+    "Forwarded to Application Load Balancer",
+    "ALB distributes traffic to EC2 instances in Auto Scaling Group",
+    "EC2 instances interact with RDS PostgreSQL database",
+    "EC2 instances store/retrieve objects from S3"
+  ]
+}

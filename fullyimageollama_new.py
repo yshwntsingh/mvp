@@ -18,6 +18,7 @@ import streamlit as st
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
 CODE_MODEL = "qwen2.5-coder:7b"
+# CODE_MODEL = "qwen2.5-coder:14b"
 VISION_MODEL = "llava"
 
 ADMIN_USER = "admin"
@@ -91,27 +92,48 @@ def ollama_chat(model, messages, images=None, temperature=0.2):
     return data["message"]["content"]
 
 # ======================================
-# JSON PARSER
+# SAFE JSON PARSER
 # ======================================
 
-def parse_json_strict(text):
-
-    text = text.strip()
-
-    text = re.sub(r"```json", "", text)
-    text = re.sub(r"```", "", text)
+def parse_json_strict(text: str):
 
     try:
-        return json.loads(text)
 
-    except:
+        text = text.replace("```json", "")
+        text = text.replace("```", "")
 
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        match = re.search(r"\{.*\}", text, re.S)
 
-        if match:
-            return json.loads(match.group(0))
+        if not match:
+            st.warning("No JSON found. Showing raw output.")
+            return {
+                "overview": "",
+                "files": {"raw_output.txt": text},
+                "post_steps": []
+            }
 
-    raise ValueError("Invalid JSON returned")
+        json_str = match.group(0)
+
+        json_str = json_str.replace("'", '"')
+
+        json_str = re.sub(r'(\w+):', r'"\1":', json_str)
+
+        json_str = re.sub(r",\s*}", "}", json_str)
+        json_str = re.sub(r",\s*]", "]", json_str)
+
+        return json.loads(json_str)
+
+    except Exception:
+
+        st.error("⚠ Invalid JSON returned by model")
+
+        st.code(text)
+
+        return {
+            "overview": "",
+            "files": {"error.txt": text},
+            "post_steps": []
+        }
 
 # ======================================
 # ZIP CREATOR
@@ -178,7 +200,7 @@ Return STRICT JSON:
 "post_steps":[]
 }}
 
-Generate infrastructure as code for:
+Generate infrastructure as code for {selected_cloud}:
 
 {request}
 """
@@ -221,9 +243,7 @@ if uploaded_file and diagram_btn:
             ],
 
             images=[image_b64],
-
             temperature=0,
-
         )
 
         arch = parse_json_strict(raw_arch)
@@ -263,30 +283,40 @@ if bundle:
 
     st.subheader("Next Steps")
 
-    for step in bundle["post_steps"]:
+    for step in bundle.get("post_steps", []):
 
         st.code(step)
 
-    files = bundle["files"]
+    files = bundle.get("files", {})
 
     left, right = st.columns([1, 2])
 
     with left:
 
-        selected_file = st.radio("Files", list(files.keys()))
+        if files:
 
-        st.download_button(
+            selected_file = st.radio("Files", list(files.keys()))
 
-            "Download ZIP",
+            st.download_button(
 
-            data=make_zip(files),
+                "Download ZIP",
 
-            file_name="iac_bundle.zip",
+                data=make_zip(files),
 
-            mime="application/zip",
+                file_name="iac_bundle.zip",
 
-        )
+                mime="application/zip",
+
+            )
+
+        else:
+
+            st.warning("No files generated")
+
+            selected_file = None
 
     with right:
 
-        st.code(files[selected_file])
+        if selected_file:
+
+            st.code(files[selected_file])

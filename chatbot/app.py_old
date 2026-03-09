@@ -1,0 +1,109 @@
+
+import streamlit as st
+import json, os
+from pathlib import Path
+
+from langchain_community.llms import Ollama
+from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+import streamlit as st
+st.write("Hello Working")
+
+import hashlib
+
+USERS = {
+    "admin": hashlib.sha256("admin123".encode()).hexdigest(),
+    "user1": hashlib.sha256("user123".encode()).hexdigest(),
+}
+
+from security import *
+from agents import *
+from audit import *
+
+st.set_page_config("Enterprise Secure RAG")
+st.title("🔐 Enterprise Secure RAG (Qwen 3)")
+
+user = st.text_input("Username", "guest")
+role = st.selectbox("Role", ["guest", "user", "admin"])
+
+llm = Ollama(model="qwen:3")
+embeddings = OllamaEmbeddings(model="qwen:3")
+
+st.subheader("📄 Upload Document (Admin Only)")
+if role == "admin":
+    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
+    sensitivity = st.selectbox("Sensitivity Level", ["public", "restricted", "secret"])
+
+    if uploaded_file and st.button("Upload & Index"):
+        upload_path = Path("data/uploads") / uploaded_file.name
+        with open(upload_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        policy_path = "data/policy.json"
+        policy = {}
+        if os.path.exists(policy_path):
+            with open(policy_path) as f:
+                policy = json.load(f)
+
+        policy[uploaded_file.name] = sensitivity
+        with open(policy_path, "w") as f:
+            json.dump(policy, f, indent=2)
+
+        loader = PyPDFLoader(str(upload_path))
+        docs = loader.load()
+        chunks = RecursiveCharacterTextSplitter(
+            chunk_size=800, chunk_overlap=100
+        ).split_documents(docs)
+
+        vectordb = Chroma(
+            persist_directory="vectordb",
+            embedding_function=embeddings
+        )
+        vectordb.add_documents(chunks)
+        vectordb.persist()
+
+        st.success("Uploaded, labeled, and indexed successfully")
+
+vectordb = Chroma(
+    persist_directory="vectordb",
+    embedding_function=embeddings
+)
+retriever = vectordb.as_retriever(k=3)
+
+query = st.chat_input("Ask securely...")
+
+if query:
+    if has_blocked_keyword(query):
+        log_event(user, role, query, "BLOCKED_INPUT")
+        st.error("Blocked keyword detected")
+        st.stop()
+
+    plan = planner_agent(query)
+
+    docs = retriever.get_relevant_documents(query)
+    policy = {}
+    if os.path.exists("data/policy.json"):
+        with open("data/policy.json") as f:
+            policy = json.load(f)
+
+    for d in docs:
+        source = os.path.basename(d.metadata.get("source", ""))
+        sensitivity = policy.get(source, "public")
+        if not role_allowed(role, sensitivity):
+            log_event(user, role, query, "RBAC_DENY")
+            st.error("Access denied by policy")
+            st.stop()
+
+    qa = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+    answer = qa.run(query)
+    safe_answer = redact(answer)
+
+    if not verifier_agent(safe_answer):
+        log_event(user, role, query, "VERIFIER_FAIL")
+        st.error("Response blocked")
+        st.stop()
+
+    log_event(user, role, query, "SUCCESS")
+    st.write(safe_answer)
